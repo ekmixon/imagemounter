@@ -55,7 +55,7 @@ class VolumeSystem(object):
         return len(self.volumes)
 
     def __getitem__(self, item):
-        item_suffix = ".{}".format(item)
+        item_suffix = f".{item}"
         for v in self.volumes:
             if v.index.endswith(item_suffix) or v.index == str(item):
                 return v
@@ -80,12 +80,8 @@ class VolumeSystem(object):
         if only_one and self.volumes:
             return self.volumes[0]
 
-        if self.parent.index is None:
-            index = '0'
-        else:
-            index = '{0}.0'.format(self.parent.index)
-        volume = self._make_subvolume(index=index, **args)
-        return volume
+        index = '0' if self.parent.index is None else '{0}.0'.format(self.parent.index)
+        return self._make_subvolume(index=index, **args)
 
     def detect_volumes(self, vstype=None, method=None, force=False):
         """Iterator for detecting volumes within this volume system.
@@ -153,16 +149,15 @@ class VolumeSystem(object):
             try:
                 line = line.strip()
 
-                find_partition_nr = re.match(r"^Partition (\d+):", line)
-                if find_partition_nr:
-                    current_partition = int(find_partition_nr.group(1))
+                if find_partition_nr := re.match(r"^Partition (\d+):", line):
+                    current_partition = int(find_partition_nr[1])
                 elif current_partition is not None:
                     if line.startswith("Type ") and "GUID" in line:
                         self._disktype[current_partition]['guid'] = \
-                            line[line.index('GUID') + 5:-1].strip()  # output is between ()
+                                line[line.index('GUID') + 5:-1].strip()  # output is between ()
                     elif line.startswith("Partition Name "):
                         self._disktype[current_partition]['label'] = \
-                            line[line.index('Name ') + 6:-1].strip()  # output is between ""
+                                line[line.index('Name ') + 6:-1].strip()  # output is between ""
             except Exception:
                 logger.exception("Error while parsing disktype output")
                 return
@@ -207,22 +202,22 @@ class SingleVolumeDetector(VolumeDetector):
     def detect(self, volume_system, vstype='detect'):
         """'Detects' a single volume. It should not be called other than from a :class:`Disk`."""
         volume = volume_system._make_single_subvolume(offset=0)
-        is_directory = os.path.isdir(volume_system.parent.get_raw_path())
-
-        if is_directory:
-            filesize = _util.check_output_(['du', '-scDb', volume_system.parent.get_raw_path()]).strip()
-            if filesize:
+        if is_directory := os.path.isdir(volume_system.parent.get_raw_path()):
+            if filesize := _util.check_output_(
+                ['du', '-scDb', volume_system.parent.get_raw_path()]
+            ).strip():
                 volume.size = int(filesize.splitlines()[-1].split()[0])
 
-        else:
-            description = _util.check_output_(['file', '-sL', volume_system.parent.get_raw_path()]).strip()
-            if description:
-                # description is the part after the :, until the first comma
-                volume.info['fsdescription'] = description.split(': ', 1)[1].split(',', 1)[0].strip()
-                if 'size' in description:
-                    volume.size = int(re.findall(r'size:? (\d+)', description)[0])
-                else:
-                    volume.size = os.path.getsize(volume_system.parent.get_raw_path())
+        elif description := _util.check_output_(
+            ['file', '-sL', volume_system.parent.get_raw_path()]
+        ).strip():
+            # description is the part after the :, until the first comma
+            volume.info['fsdescription'] = description.split(': ', 1)[1].split(',', 1)[0].strip()
+            volume.size = (
+                int(re.findall(r'size:? (\d+)', description)[0])
+                if 'size' in description
+                else os.path.getsize(volume_system.parent.get_raw_path())
+            )
 
         volume.flag = 'alloc'
         volume_system.volume_source = 'single'
@@ -256,8 +251,12 @@ class Pytsk3VolumeDetector(VolumeDetector):
                 return []
 
             try:
-                volumes = pytsk3.Volume_Info(baseimage, getattr(pytsk3, 'TSK_VS_TYPE_' + vstype.upper()),
-                                             volume_system.parent.offset // volume_system.disk.block_size)
+                volumes = pytsk3.Volume_Info(
+                    baseimage,
+                    getattr(pytsk3, f'TSK_VS_TYPE_{vstype.upper()}'),
+                    volume_system.parent.offset // volume_system.disk.block_size,
+                )
+
                 volume_system.volume_source = 'multi'
                 return volumes
             except Exception as e:
@@ -330,9 +329,12 @@ class PartedVolumeDetector(VolumeDetector):
         # noinspection PyBroadException
         try:
             output = _util.check_output_(['parted', volume_system.parent.get_raw_path(), 'print'], stdin=subprocess.PIPE)
-            for line in output.splitlines():
-                if 'extended' in line:
-                    meta_volumes.append(int(line.split()[0]))
+            meta_volumes.extend(
+                int(line.split()[0])
+                for line in output.splitlines()
+                if 'extended' in line
+            )
+
         except Exception:
             logger.exception("Failed executing parted command.")
             # skip detection of meta volumes
@@ -444,7 +446,7 @@ class MmlsVolumeDetector(VolumeDetector):
 
                 # sometimes there are only 5 elements available
                 description = ''
-                index, slot, start, end, length = values[0:5]
+                index, slot, start, end, length = values[:5]
                 if len(values) > 5:
                     description = values[5]
 
@@ -502,7 +504,7 @@ class VssVolumeDetector(VolumeDetector):
                 current_store = volume_system._make_subvolume(
                     index=self._format_index(volume_system, idx), flag='alloc', offset=0
                 )
-                current_store._paths['vss_store'] = os.path.join(path, 'vss' + idx)
+                current_store._paths['vss_store'] = os.path.join(path, f'vss{idx}')
                 current_store.info['fsdescription'] = 'VSS Store'
             elif line.startswith("Volume size"):
                 current_store.size = int(line.split(":")[-1].strip().split()[0])

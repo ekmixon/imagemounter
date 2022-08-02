@@ -57,7 +57,7 @@ class ReconstructionTest(unittest.TestCase):
         v3.info['lastmountpoint'] = '/etc'
         disk.volumes.volumes = [v1, v2, v3]
         with mock.patch.object(v1, "bindmount") as v1_bm, mock.patch.object(v2, "bindmount") as v2_bm, \
-                mock.patch.object(v3, "bindmount") as v3_bm:
+                    mock.patch.object(v3, "bindmount") as v3_bm:
             parser.reconstruct()
             v1_bm.assert_not_called()
             v2_bm.assert_not_called()

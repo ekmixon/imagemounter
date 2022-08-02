@@ -320,22 +320,20 @@ class LuksTest(unittest.TestCase):
     @mock.patch("imagemounter.volume._util.check_output_")
     def test_luks_key_communication(self, check_call, check_output):
         def modified_check_call(cmd, *args, **kwargs):
-            if cmd[0:2] == ['cryptsetup', 'isLuks']:
+            if cmd[:2] == ['cryptsetup', 'isLuks']:
                 return True
-            if cmd[0:1] == ['losetup']:
-                return "/dev/loop0"
-            return mock.DEFAULT
+            return "/dev/loop0" if cmd[:1] == ['losetup'] else mock.DEFAULT
+
         check_call.side_effect = modified_check_call
 
         def modified_check_output(cmd, *args, **kwargs):
-            if cmd[0:1] == ['losetup']:
-                return "/dev/loop0"
-            return mock.DEFAULT
+            return "/dev/loop0" if cmd[:1] == ['losetup'] else mock.DEFAULT
+
         check_output.side_effect = modified_check_output
 
         original_popen = subprocess.Popen
         def modified_popen(cmd, *args, **kwargs):
-            if cmd[0:3] == ['cryptsetup', '-r', 'luksOpen']:
+            if cmd[:3] == ['cryptsetup', '-r', 'luksOpen']:
                 # A command that requests user input
                 x = original_popen([sys.executable, "-c", "print(input(''))"],
                                    *args, **kwargs)

@@ -130,9 +130,9 @@ class Disk(object):
         targetraw = os.path.join(self.mountpoint, 'avfs')
 
         os.symlink(avfspath, targetraw)
-        logger.debug("Symlinked {} with {}".format(avfspath, targetraw))
+        logger.debug(f"Symlinked {avfspath} with {targetraw}")
         raw_path = self.get_raw_path()
-        logger.debug("Raw path to avfs is {}".format(raw_path))
+        logger.debug(f"Raw path to avfs is {raw_path}")
         if raw_path is None:
             raise MountpointEmptyError()
 
@@ -147,7 +147,10 @@ class Disk(object):
         """
 
         if self.parser.casename:
-            self.mountpoint = tempfile.mkdtemp(prefix='image_mounter_', suffix='_' + self.parser.casename)
+            self.mountpoint = tempfile.mkdtemp(
+                prefix='image_mounter_', suffix=f'_{self.parser.casename}'
+            )
+
         else:
             self.mountpoint = tempfile.mkdtemp(prefix='image_mounter_')
 
@@ -169,7 +172,7 @@ class Disk(object):
             elif method == 'dummy':
                 os.rmdir(self.mountpoint)
                 self.mountpoint = ""
-                logger.debug("Raw path to dummy is {}".format(self.get_raw_path()))
+                logger.debug(f"Raw path to dummy is {self.get_raw_path()}")
                 self.disk_mounter = method
                 self.was_mounted = True
                 self.is_mounted = True
@@ -217,7 +220,7 @@ class Disk(object):
                 continue
             else:
                 raw_path = self.get_raw_path()
-                logger.debug("Raw path to disk is {}".format(raw_path))
+                logger.debug(f"Raw path to disk is {raw_path}")
                 self.disk_mounter = cmd[0]
 
                 if raw_path is None:
@@ -240,28 +243,27 @@ class Disk(object):
 
         if self.disk_mounter == 'dummy':
             return self.paths[0]
+        if self.disk_mounter == 'avfs' and os.path.isdir(os.path.join(self.mountpoint, 'avfs')):
+            logger.debug("AVFS mounted as a directory, will look in directory for (random) file.")
+            # there is no support for disks inside disks, so this will fail to work for zips containing
+            # E01 files or so.
+            searchdirs = (os.path.join(self.mountpoint, 'avfs'), self.mountpoint)
         else:
-            if self.disk_mounter == 'avfs' and os.path.isdir(os.path.join(self.mountpoint, 'avfs')):
-                logger.debug("AVFS mounted as a directory, will look in directory for (random) file.")
-                # there is no support for disks inside disks, so this will fail to work for zips containing
-                # E01 files or so.
-                searchdirs = (os.path.join(self.mountpoint, 'avfs'), self.mountpoint)
-            else:
-                searchdirs = (self.mountpoint, )
+            searchdirs = (self.mountpoint, )
 
-            raw_path = []
-            if self._paths.get('nbd'):
-                raw_path.append(self._paths['nbd'])
+        raw_path = []
+        if self._paths.get('nbd'):
+            raw_path.append(self._paths['nbd'])
 
-            for searchdir in searchdirs:
-                # avfs: apparently it is not a dir
-                for pattern in ['*.dd', '*.iso', '*.raw', '*.dmg', 'ewf1', 'flat', 'avfs']:
-                    raw_path.extend(glob.glob(os.path.join(searchdir, pattern)))
+        for searchdir in searchdirs:
+            # avfs: apparently it is not a dir
+            for pattern in ['*.dd', '*.iso', '*.raw', '*.dmg', 'ewf1', 'flat', 'avfs']:
+                raw_path.extend(glob.glob(os.path.join(searchdir, pattern)))
 
-            if not raw_path:
-                logger.warning("No viable mount file found in {}.".format(searchdirs))
-                return None
-            return raw_path[0]
+        if not raw_path:
+            logger.warning(f"No viable mount file found in {searchdirs}.")
+            return None
+        return raw_path[0]
 
     def get_fs_path(self):
         """Returns the path to the filesystem. Most of the times this is the image file, but may instead also return
@@ -270,10 +272,7 @@ class Disk(object):
         :rtype: str
         """
 
-        if self._paths.get('md'):
-            return self._paths['md']
-        else:
-            return self.get_raw_path()
+        return self._paths['md'] if self._paths.get('md') else self.get_raw_path()
 
     def detect_volumes(self, single=None):
         """Generator that detects the volumes from the Disk, using one of two methods:

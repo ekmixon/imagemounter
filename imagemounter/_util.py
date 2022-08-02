@@ -20,12 +20,10 @@ def clean_unmount(cmd, mountpoint, tries=5, rmdir=True):
     if os.path.exists(os.path.join(mountpoint, 'avfs')):
         os.remove(os.path.join(mountpoint, 'avfs'))
         # noinspection PyProtectedMember
-        logger.debug("Removed {}".format(os.path.join(mountpoint, 'avfs')))
+        logger.debug(f"Removed {os.path.join(mountpoint, 'avfs')}")
     elif os.path.islink(mountpoint):
         pass  # if it is a symlink, we can simply skip to removing it
-    elif not os.path.ismount(mountpoint):
-        pass  # if is not a mount point, we can simply skip to removing it
-    else:
+    elif os.path.ismount(mountpoint):
         # Perform unmount
         # noinspection PyBroadException
         try:
@@ -81,25 +79,23 @@ def expand_path(path):
     '/path/to/image.[0-9][0-9]?'
     """
     if is_encase(path):
-        return glob.glob(path[:-2] + '??') or [path]
+        return glob.glob(f'{path[:-2]}??') or [path]
     ext_match = re.match(r'^.*\.(\d{2,})$', path)
-    if ext_match is not None:
-        ext_size = len(ext_match.groups()[-1])
-        return glob.glob(path[:-ext_size] + '[0-9]' * ext_size) or [path]
-    else:
+    if ext_match is None:
         return [path]
+    ext_size = len(ext_match.groups()[-1])
+    return glob.glob(path[:-ext_size] + '[0-9]' * ext_size) or [path]
 
 
 def command_exists(cmd):
     fpath, fname = os.path.split(cmd)
     if fpath:
         return os.path.isfile(cmd) and os.access(cmd, os.X_OK)
-    else:
-        for p in os.environ['PATH'].split(os.pathsep):
-            p = p.strip('"')
-            fp = os.path.join(p, cmd)
-            if os.path.isfile(fp) and os.access(fp, os.X_OK):
-                return True
+    for p in os.environ['PATH'].split(os.pathsep):
+        p = p.strip('"')
+        fp = os.path.join(p, cmd)
+        if os.path.isfile(fp) and os.access(fp, os.X_OK):
+            return True
 
     return False
 
@@ -133,7 +129,7 @@ def check_output_(cmd, *args, **kwargs):
             logger.debug('< {0}'.format(result))
         return result
     except subprocess.CalledProcessError as e:
-        logger.debug("< return code {}".format(e.returncode))
+        logger.debug(f"< return code {e.returncode}")
         if e.output:
             result = e.output.decode(encoding)
             logger.debug('< {0}'.format(result))
@@ -144,7 +140,7 @@ def get_free_nbd_device():
     for nbd_path in glob.glob("/sys/class/block/nbd*"):
         try:
             if check_output_(["cat", "{0}/size".format(nbd_path), ]).strip() == "0":
-                return "/dev/{}".format(os.path.basename(nbd_path))
+                return f"/dev/{os.path.basename(nbd_path)}"
         except subprocess.CalledProcessError as e:
             if e.output:
                 result = e.output.decode(encoding)
@@ -153,10 +149,7 @@ def get_free_nbd_device():
 
 
 def determine_slot(table, slot):
-    if int(table) >= 0:
-        return int(table) * 4 + int(slot) + 1
-    else:
-        return int(slot) + 1
+    return int(table) * 4 + int(slot) + 1 if int(table) >= 0 else int(slot) + 1
 
 
 def terminal_supports_color():

@@ -174,7 +174,7 @@ class MountFileSystem(MountpointFileSystemMixin, FileSystem):
         # default arguments for calling mount
         if opts and not opts.endswith(','):
             opts += ","
-        opts += 'loop,offset=' + str(volume.offset) + ',sizelimit=' + str(volume.size)
+        opts += f'loop,offset={str(volume.offset)},sizelimit={str(volume.size)}'
 
         # building the command
         cmd = ['mount', volume.get_raw_path(), mountpoint, '-o', opts]
@@ -198,7 +198,7 @@ class FallbackFileSystem(FileSystem):
         super().__init__(volume, *args, **kwargs)
 
     def __str__(self):
-        return "?" + str(self.fallback)
+        return f"?{str(self.fallback)}"
 
 
 class UnknownFileSystem(MountFileSystem):
@@ -391,9 +391,18 @@ class Jffs2FileSystem(MountFileSystem):
         size_in_kb = int((self.volume.size / 1024) * 1.2)
         _util.check_call_(['modprobe', '-v', 'mtd'])
         _util.check_call_(['modprobe', '-v', 'jffs2'])
-        _util.check_call_(['modprobe', '-v', 'mtdram', 'total_size={}'.format(size_in_kb), 'erase_size=256'])
+        _util.check_call_(
+            [
+                'modprobe',
+                '-v',
+                'mtdram',
+                f'total_size={size_in_kb}',
+                'erase_size=256',
+            ]
+        )
+
         _util.check_call_(['modprobe', '-v', 'mtdblock'])
-        _util.check_call_(['dd', 'if=' + self.volume.get_raw_path(), 'of=/dev/mtd0'])
+        _util.check_call_(['dd', f'if={self.volume.get_raw_path()}', 'of=/dev/mtd0'])
 
         self._make_mountpoint()
         _util.check_call_(['mount', '-t', 'jffs2', '/dev/mtdblock0', self.mountpoint])
@@ -446,12 +455,12 @@ class LuksFileSystem(LoopbackFileSystemMixin, FileSystem):
             key = None
             if self.volume.key:
                 t, v = self.volume.key.split(':', 1)
-                if t == 'p':  # passphrase
-                    key = v
-                elif t == 'f':  # key-file
+                if t == 'f':
                     extra_args = ['--key-file', v]
-                elif t == 'm':  # master-key-file
+                elif t == 'm':
                     extra_args = ['--master-key-file', v]
+                elif t == 'p':
+                    key = v
             else:
                 logger.warning("No key material provided for %s", self.volume)
         except ValueError:
@@ -461,12 +470,11 @@ class LuksFileSystem(LoopbackFileSystemMixin, FileSystem):
             raise ArgumentError()
 
         # Open the LUKS container
-        self.luks_name = 'image_mounter_luks_' + str(random.randint(10000, 99999))
+        self.luks_name = f'image_mounter_luks_{random.randint(10000, 99999)}'
 
         # noinspection PyBroadException
         try:
-            cmd = ["cryptsetup", "luksOpen", self.loopback, self.luks_name]
-            cmd.extend(extra_args)
+            cmd = ["cryptsetup", "luksOpen", self.loopback, self.luks_name, *extra_args]
             if not self.volume.disk.read_write:
                 cmd.insert(1, '-r')
 
@@ -476,8 +484,7 @@ class LuksFileSystem(LoopbackFileSystemMixin, FileSystem):
                 p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 p.communicate(key.encode("utf-8"))
                 p.wait()
-                retcode = p.poll()
-                if retcode:
+                if retcode := p.poll():
                     raise KeyInvalidError()
             else:
                 _util.check_call_(cmd)
@@ -542,7 +549,7 @@ class BdeFileSystem(MountpointFileSystemMixin, FileSystem):
         try:
             if self.volume.key:
                 t, v = self.volume.key.split(':', 1)
-                key = ['-' + t, v]
+                key = [f'-{t}', v]
             else:
                 logger.warning("No key material provided for %s", self.volume)
                 key = []
@@ -657,8 +664,7 @@ class RaidFileSystem(LoopbackFileSystemMixin, FileSystem):
             # incremental and run as soon as available
             output = _util.check_output_(['mdadm', '-IR', self.loopback], stderr=subprocess.STDOUT)
 
-            match = re.findall(r"attached to ([^ ,]+)", output)
-            if match:
+            if match := re.findall(r"attached to ([^ ,]+)", output):
                 self.mdpath = os.path.realpath(match[0])
                 if 'which is already active' in output:
                     logger.info("RAID is already active in other volume, using %s", self.mdpath)
@@ -675,19 +681,17 @@ class RaidFileSystem(LoopbackFileSystemMixin, FileSystem):
             self._free_loopback()
             raise SubsystemError(e)
 
-        # search for the RAID volume
         for v in self._iter_same_md_volumes():
             if v.volumes:
                 logger.debug("Adding existing volume %s to volume %s", v.volumes[0], self.volume)
                 v.volumes[0].info['raid_status'] = raid_status
                 self.volume.volumes.volumes.append(v.volumes[0])
                 return v.volumes[0]
-        else:
-            logger.debug("Creating RAID volume for %s", self)
-            container = self.volume.volumes._make_single_subvolume(flag='alloc', offset=0, size=self.volume.size)
-            container.info['fsdescription'] = 'RAID Volume'
-            container.info['raid_status'] = raid_status
-            return container
+        logger.debug("Creating RAID volume for %s", self)
+        container = self.volume.volumes._make_single_subvolume(flag='alloc', offset=0, size=self.volume.size)
+        container.info['fsdescription'] = 'RAID Volume'
+        container.info['raid_status'] = raid_status
+        return container
 
     def unmount(self, allow_lazy=False):
         if self.mdpath is not None:
@@ -709,7 +713,10 @@ class RaidFileSystem(LoopbackFileSystemMixin, FileSystem):
 
 
 # Populate the FILE_SYSTEM_TYPES
-FILE_SYSTEM_TYPES = {}
-for _, cls in inspect.getmembers(sys.modules[__name__], inspect.isclass):
-    if issubclass(cls, FileSystem) and cls != FileSystem and cls.type is not None:
-        FILE_SYSTEM_TYPES[cls.type] = cls
+FILE_SYSTEM_TYPES = {
+    cls.type: cls
+    for _, cls in inspect.getmembers(sys.modules[__name__], inspect.isclass)
+    if issubclass(cls, FileSystem)
+    and cls != FileSystem
+    and cls.type is not None
+}

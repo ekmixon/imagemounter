@@ -35,7 +35,8 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="enable verbose output")
     args = parser.parse_args()
 
-    # This sets up the logger. This is somewhat huge part of this example
+
+
     class ImageMounterFormatter(logging.Formatter):
         def format(self, record):
             msg = record.getMessage()
@@ -46,19 +47,20 @@ def main():
                     msg += "\n"
                 msg += record.exc_text
             if record.levelno >= logging.WARNING:
-                return colored("[-] " + msg, 'cyan')
+                return colored(f"[-] {msg}", 'cyan')
             elif record.levelno == logging.INFO:
-                return colored("[+] " + msg, 'cyan')
+                return colored(f"[+] {msg}", 'cyan')
             elif msg.startswith('$'):
-                return colored("  " + msg, 'cyan')
+                return colored(f"  {msg}", 'cyan')
             else:
-                return colored("    " + msg, 'cyan')
+                return colored(f"    {msg}", 'cyan')
+
 
     # Set logging level for internal Python
     handler = logging.StreamHandler()
     handler.setFormatter(ImageMounterFormatter())
     logger = logging.getLogger("imagemounter")
-    logger.setLevel(logging.WARNING if not args.verbose else logging.DEBUG)
+    logger.setLevel(logging.DEBUG if args.verbose else logging.WARNING)
     logger.addHandler(handler)
 
     # This is the basic parser.
@@ -102,23 +104,22 @@ def main():
             else:
                 print('[+] Carved data is available at {0}.'.format(colored(path, 'green', attrs=['bold'])))
 
-        if args.vshadow and volume.fstype == 'ntfs':
-            sys.stdout.write("[+] Mounting volume shadow copies...\r")
-            sys.stdout.flush()
-            try:
-                volumes = volume.detect_volume_shadow_copies()
-            except ImageMounterError:
-                print(colored('[-] Volume shadow copies could not be mounted.', 'red'))
-            else:
-                for v in volumes:
-                    try:
-                        v.init_volume()
-                    except ImageMounterError:
-                        print(colored('[-] Volume shadow copy {} not mounted'.format(v), 'red'))
-                    else:
-                        print('[+] Volume shadow copy available at {0}.'.format(colored(v.mountpoint, 'green', attrs=['bold'])))
-        else:
+        if not args.vshadow or volume.fstype != 'ntfs':
             continue  # we do not need the unmounting sequence
+        sys.stdout.write("[+] Mounting volume shadow copies...\r")
+        sys.stdout.flush()
+        try:
+            volumes = volume.detect_volume_shadow_copies()
+        except ImageMounterError:
+            print(colored('[-] Volume shadow copies could not be mounted.', 'red'))
+        else:
+            for v in volumes:
+                try:
+                    v.init_volume()
+                except ImageMounterError:
+                    print(colored(f'[-] Volume shadow copy {v} not mounted', 'red'))
+                else:
+                    print('[+] Volume shadow copy available at {0}.'.format(colored(v.mountpoint, 'green', attrs=['bold'])))
 
 
 if __name__ == '__main__':

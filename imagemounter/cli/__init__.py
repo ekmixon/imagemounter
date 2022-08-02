@@ -45,7 +45,7 @@ class AppendDictAction(argparse.Action):
                     k, v = values.split('=', 1)
                     items[k] = v
             except ValueError:
-                parser.error("could not parse {}".format(self.dest))
+                parser.error(f"could not parse {self.dest}")
         setattr(namespace, self.dest, items)
 
 
@@ -79,18 +79,18 @@ class ImageMounterFormatter(logging.Formatter):
                 msg += "\n"
             msg += record.exc_text
         if record.levelno >= logging.WARNING:
-            return self.colored_func("[-] " + msg, 'cyan')
+            return self.colored_func(f"[-] {msg}", 'cyan')
         elif record.levelno == logging.INFO:
-            return self.colored_func("[+] " + msg, 'cyan')
+            return self.colored_func(f"[+] {msg}", 'cyan')
         elif msg.startswith('$'):
-            return self.colored_func("  " + msg, 'cyan')
+            return self.colored_func(f"  {msg}", 'cyan')
         elif msg.startswith('<'):
             if self.verbosity >= 4:
                 return self.colored_func("  " + "\n  < ".join(msg.splitlines()), 'cyan')
             else:
                 return ""
         else:
-            return self.colored_func("    " + msg, 'cyan')
+            return self.colored_func(f"    {msg}", 'cyan')
 
 
 def get_coloring_func(color=False, no_color=False):

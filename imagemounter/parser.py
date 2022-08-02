@@ -81,10 +81,7 @@ class ImageParser(object):
         if self.disks and self.disks[0].index is None:
             raise DiskIndexError("First disk has no index.")
 
-        if force_disk_indexes or self.disks:
-            index = len(self.disks) + 1
-        else:
-            index = None
+        index = len(self.disks) + 1 if force_disk_indexes or self.disks else None
         disk = Disk(self, path, index=str(index) if index else None, **args)
         self.disks.append(disk)
         return disk

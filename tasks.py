@@ -11,7 +11,7 @@ def clean(ctx):
 
 @task
 def test(ctx):
-    print('Python version: ' + sys.version)
+    print(f'Python version: {sys.version}')
 
     cwp = os.path.dirname(os.path.abspath(__name__))
     pythonpath = os.environ.get('PYTHONPATH', '').split(os.pathsep)

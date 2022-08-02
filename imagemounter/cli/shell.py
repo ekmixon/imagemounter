@@ -37,7 +37,7 @@ class ArgumentParsedShell(cmd.Cmd):
         for name in self.get_names():
             if name.startswith('parser_'):
                 parser = subparsers.add_parser(name[7:])
-                parser.set_defaults(func=getattr(self, 'arg_' + name[7:]))
+                parser.set_defaults(func=getattr(self, f'arg_{name[7:]}'))
                 getattr(self, name)(parser)
 
         self.argparser_completer = None
@@ -84,7 +84,7 @@ class ArgumentParsedShell(cmd.Cmd):
             return []
 
     def argparse_names(self, prefix=""):
-        return [a[4:] for a in self.get_names() if a.startswith("arg_" + prefix)]
+        return [a[4:] for a in self.get_names() if a.startswith(f"arg_{prefix}")]
 
     def completenames(self, text, *ignored):
         """Patched to also return argparse commands"""
@@ -131,7 +131,7 @@ class ImageMounterShell(ArgumentParsedShell):
 
             self.parser = ImageParser()
             for p in self.args.paths:
-                self.onecmd('disk "{}"'.format(p))
+                self.onecmd(f'disk "{p}"')
 
     def onecmd(self, line):
         """Do not crash the entire program when a single command fails."""
@@ -154,7 +154,12 @@ class ImageMounterShell(ArgumentParsedShell):
     def _get_by_index(self, index):
         """Returns a volume,disk tuple for the specified index"""
         volume_or_disk = self.parser.get_by_index(index)
-        volume, disk = (volume_or_disk, None) if not isinstance(volume_or_disk, Disk) else (None, volume_or_disk)
+        volume, disk = (
+            (None, volume_or_disk)
+            if isinstance(volume_or_disk, Disk)
+            else (volume_or_disk, None)
+        )
+
         return volume, disk
 
     ######################################################################
@@ -199,62 +204,28 @@ class ImageMounterShell(ArgumentParsedShell):
         col = get_coloring_func()
         volume, disk = self._get_by_index(args.index)
 
-        if not args.recursive:
-            if disk:
-                if not disk.is_mounted:
-                    try:
-                        disk.mount()
-                    except Exception:
-                        pass
-                else:
-                    print(col("Disk {} is already mounted.".format(disk.index), 'red'))
-            else:
-                if not volume.is_mounted:
-                    try:
-                        if args.key is not None:
-                            volume.key = args.key
-                        # TODO: do something with args.fstype
-                        volume.init_volume()
-                        if volume.is_mounted:
-                            if volume.mountpoint:
-                                print("Mounted volume {index} at {path}"
-                                      .format(path=col(volume.mountpoint, "green", attrs=['bold']),
-                                              index=volume.index))
-                            else:
-                                print("Mounted volume {index} (no mountpoint available)".format(index=volume.index))
-                        else:
-                            print("Refused to mount volume {index}.".format(index=volume.index))
-                    except Exception as e:
-                        print(col("An error occurred while mounting volume {index}: {type}: {args}"
-                                  .format(type=type(e).__name__,
-                                          args=" ".join(map(str, e.args)),
-                                          index=volume.index), "red"))
-                else:
-                    if volume.mountpoint:
-                        print(col("Volume {} is already mounted at {}.".format(volume.index, volume.mountpoint), 'red'))
-                    else:
-                        print(col("Volume {} is already mounted.".format(volume.index), 'red'))
+        if disk:
+            if not disk.is_mounted:
+                try:
+                    disk.mount()
+                except Exception:
+                    pass
+            elif not args.recursive:
+                print(col(f"Disk {disk.index} is already mounted.", 'red'))
+            it = disk.init_volumes
         else:
-            if disk:
-                if not disk.is_mounted:
-                    try:
-                        disk.mount()
-                    except Exception:
-                        pass
-                it = disk.init_volumes
-            else:
-                it = volume.init
-            for v in it():
-                if v.mountpoint:
-                    print("Mounted volume {index} at {path}"
-                          .format(path=col(v.mountpoint, "green", attrs=['bold']),
-                                  index=v.index))
-                elif v.exception:
-                    e = v.exception
-                    print(col("An error occurred while mounting volume {index}: {type}: {args}"
-                              .format(type=type(e).__name__,
-                                      args=" ".join(map(str, e.args)),
-                                      index=v.index), "red"))
+            it = volume.init
+        for v in it():
+            if v.mountpoint:
+                print("Mounted volume {index} at {path}"
+                      .format(path=col(v.mountpoint, "green", attrs=['bold']),
+                              index=v.index))
+            elif v.exception:
+                e = v.exception
+                print(col("An error occurred while mounting volume {index}: {type}: {args}"
+                          .format(type=type(e).__name__,
+                                  args=" ".join(map(str, e.args)),
+                                  index=v.index), "red"))
 
     ######################################################################
     # unmount command
@@ -379,28 +350,27 @@ class ImageMounterShell(ArgumentParsedShell):
                 try:
                     setattr(volume, args.name, int(args.value))
                 except ValueError:
-                    print(col("Invalid value provided for {}".format(args.name), 'red'))
+                    print(col(f"Invalid value provided for {args.name}", 'red'))
                 else:
-                    print(col("Updated value for {}".format(args.name), 'green'))
+                    print(col(f"Updated value for {args.name}", 'green'))
             elif args.name in ['slot', 'flag', 'fstype', 'key']:
                 setattr(volume, args.name, args.value)
-                print(col("Updated value for {}".format(args.name), 'green'))
+                print(col(f"Updated value for {args.name}", 'green'))
             else:
-                print(col("Property {} can't be set for a volume".format(args.name), 'red'))
+                print(col(f"Property {args.name} can't be set for a volume", 'red'))
 
-        else:
-            if args.name in ['offset', 'block_size']:
-                try:
-                    setattr(disk, args.name, int(args.value))
-                except ValueError:
-                    print(col("Invalid value provided for {}".format(args.name), 'red'))
-                else:
-                    print(col("Updated value for {}".format(args.name), 'green'))
-            elif args.name in ['disk_mounter']:
-                setattr(disk, args.name, args.value)
-                print(col("Updated value for {}".format(args.name), 'green'))
+        elif args.name in ['offset', 'block_size']:
+            try:
+                setattr(disk, args.name, int(args.value))
+            except ValueError:
+                print(col(f"Invalid value provided for {args.name}", 'red'))
             else:
-                print(col("Property {} can't be set for a disk".format(args.name), 'red'))
+                print(col(f"Updated value for {args.name}", 'green'))
+        elif args.name in ['disk_mounter']:
+            setattr(disk, args.name, args.value)
+            print(col(f"Updated value for {args.name}", 'green'))
+        else:
+            print(col(f"Property {args.name} can't be set for a disk", 'red'))
 
     ######################################################################
     # quit command

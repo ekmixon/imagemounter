@@ -222,8 +222,7 @@ class DependencySection(object):
         lines = [
             "-- {0.name} ({0.description}) --".format(self)
         ]
-        for dep in self.deps:
-            lines.append(" " + dep.printable_status)
+        lines.extend(f" {dep.printable_status}" for dep in self.deps)
         return "\n".join(lines)
 
 

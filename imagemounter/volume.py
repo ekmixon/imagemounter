@@ -89,7 +89,7 @@ class Volume(object):
     @property
     def numeric_index(self):
         try:
-            return tuple([int(x) for x in self.index.split(".")])
+            return tuple(int(x) for x in self.index.split("."))
         except ValueError:
             return ()
 
@@ -132,11 +132,7 @@ class Volume(object):
             desc += '{0} '.format(self.get_formatted_size())
 
         s = self.info.get('statfstype') or self.info.get('fsdescription') or '-'
-        if with_index:
-            desc += '{1}:{0}'.format(s, self.index)
-        else:
-            desc += s
-
+        desc += '{1}:{0}'.format(s, self.index) if with_index else s
         if self.info.get('label'):
             desc += ' {0}'.format(self.info.get('label'))
 
@@ -148,19 +144,18 @@ class Volume(object):
     def get_formatted_size(self):
         """Obtains the size of the volume in a human-readable format (i.e. in TiBs, GiBs or MiBs)."""
 
-        if self.size is not None:
-            if self.size < 1024:
-                return "{0} B".format(self.size)
-            elif self.size < 1024 ** 2:
-                return "{0} KiB".format(round(self.size / 1024, 2))
-            elif self.size < 1024 ** 3:
-                return "{0} MiB".format(round(self.size / 1024 ** 2, 2))
-            elif self.size < 1024 ** 4:
-                return "{0} GiB".format(round(self.size / 1024 ** 3, 2))
-            else:
-                return "{0} TiB".format(round(self.size / 1024 ** 4, 2))
-        else:
+        if self.size is None:
             return self.size
+        if self.size < 1024:
+            return "{0} B".format(self.size)
+        elif self.size < 1024 ** 2:
+            return "{0} KiB".format(round(self.size / 1024, 2))
+        elif self.size < 1024 ** 3:
+            return "{0} MiB".format(round(self.size / 1024 ** 2, 2))
+        elif self.size < 1024 ** 4:
+            return "{0} GiB".format(round(self.size / 1024 ** 3, 2))
+        else:
+            return "{0} TiB".format(round(self.size / 1024 ** 4, 2))
 
     @dependencies.require(dependencies.blkid, none_on_failure=True)
     def _get_blkid_type(self):
@@ -445,44 +440,55 @@ class Volume(object):
         if parser.mountdir and not os.path.exists(parser.mountdir):
             os.makedirs(parser.mountdir)
 
-        if parser.pretty:
-            md = parser.mountdir or tempfile.gettempdir()
-            case_name = casename or self.disk.parser.casename or \
-                ".".join(os.path.basename(self.disk.paths[0]).split('.')[0:-1]) or \
-                os.path.basename(self.disk.paths[0])
+        if not parser.pretty:
+            return tempfile.mkdtemp(
+                prefix=f'im_{self.index}_',
+                suffix=f'_{self.get_safe_label()}'
+                + (f"_{suffix}" if suffix else ""),
+                dir=parser.mountdir,
+            )
 
-            fstype = self.filesystem.type if self.filesystem is not None else None
-            if self.disk.parser.casename == case_name:  # the casename is already in the path in this case
-                pretty_label = "{0}-{1}".format(self.index, self.get_safe_label() or fstype or 'volume')
-            else:
-                pretty_label = "{0}-{1}-{2}".format(case_name, self.index,
-                                                    self.get_safe_label() or fstype or 'volume')
-            if suffix:
-                pretty_label += "-" + suffix
-            path = os.path.join(md, pretty_label)
+        md = parser.mountdir or tempfile.gettempdir()
+        case_name = (
+            casename
+            or self.disk.parser.casename
+            or ".".join(os.path.basename(self.disk.paths[0]).split('.')[:-1])
+            or os.path.basename(self.disk.paths[0])
+        )
+
+
+        fstype = self.filesystem.type if self.filesystem is not None else None
+        pretty_label = (
+            "{0}-{1}".format(
+                self.index, self.get_safe_label() or fstype or 'volume'
+            )
+            if self.disk.parser.casename == case_name
+            else "{0}-{1}-{2}".format(
+                case_name, self.index, self.get_safe_label() or fstype or 'volume'
+            )
+        )
+
+        if suffix:
+            pretty_label += f"-{suffix}"
+        path = os.path.join(md, pretty_label)
 
             # check if path already exists, otherwise try to find another nice path
-            if os.path.exists(path):
-                for i in range(2, 100):
-                    path = os.path.join(md, pretty_label + "-" + str(i))
-                    if not os.path.exists(path):
-                        break
-                else:
-                    logger.error("Could not find free mountdir.")
-                    raise NoMountpointAvailableError()
-
-            # noinspection PyBroadException
-            try:
-                os.mkdir(path, 777)
-                return path
-            except Exception:
-                logger.exception("Could not create mountdir.")
+        if os.path.exists(path):
+            for i in range(2, 100):
+                path = os.path.join(md, f"{pretty_label}-{str(i)}")
+                if not os.path.exists(path):
+                    break
+            else:
+                logger.error("Could not find free mountdir.")
                 raise NoMountpointAvailableError()
-        else:
-            t = tempfile.mkdtemp(prefix='im_' + self.index + '_',
-                                 suffix='_' + self.get_safe_label() + ("_" + suffix if suffix else ""),
-                                 dir=parser.mountdir)
-            return t
+
+        # noinspection PyBroadException
+        try:
+            os.mkdir(path, 777)
+            return path
+        except Exception:
+            logger.exception("Could not create mountdir.")
+            raise NoMountpointAvailableError()
 
     def _clear_mountpoint(self):
         """Clears a created mountpoint. Does not unmount it, merely deletes it."""
@@ -548,7 +554,7 @@ class Volume(object):
             if callable(description):
                 description = description()
 
-            logger.debug("Trying to determine fs type from {} '{}'".format(source, description))
+            logger.debug(f"Trying to determine fs type from {source} '{description}'")
             if not description:
                 continue
 
@@ -557,7 +563,7 @@ class Volume(object):
                 result.update(type.detect(source, description))
 
             # Now sort the results by their certainty
-            logger.debug("Current certainty levels: {}".format(result))
+            logger.debug(f"Current certainty levels: {result}")
 
             # If we have not found any candidates, we continue
             if not result:
@@ -613,7 +619,7 @@ class Volume(object):
             self.is_mounted = True
 
         except Exception as e:
-            logger.exception("Execution failed due to {} {}".format(type(e), e), exc_info=True)
+            logger.exception(f"Execution failed due to {type(e)} {e}", exc_info=True)
             if not isinstance(e, ImageMounterError):
                 raise SubsystemError(e)
             else:
@@ -642,14 +648,13 @@ class Volume(object):
     def get_volumes(self):
         """Recursively gets a list of all subvolumes and the current volume."""
 
-        if self.volumes:
-            volumes = []
-            for v in self.volumes:
-                volumes.extend(v.get_volumes())
-            volumes.append(self)
-            return volumes
-        else:
+        if not self.volumes:
             return [self]
+        volumes = []
+        for v in self.volumes:
+            volumes.extend(v.get_volumes())
+        volumes.append(self)
+        return volumes
 
     @dependencies.require(dependencies.fsstat, none_on_failure=True)
     def _load_fsstat_data(self, timeout=3):
@@ -662,9 +667,16 @@ class Volume(object):
                 # Setting the fstype explicitly makes fsstat much faster and more reliable
                 # In some versions, the auto-detect yaffs2 check takes ages for large images
                 fstype = {
-                    "ntfs": "ntfs", "fat": "fat", "ext": "ext", "iso": "iso9660", "hfs+": "hfs",
-                    "ufs": "ufs", "swap": "swap", "exfat": "exfat",
-                }.get(self.filesystem.type, None)
+                    "ntfs": "ntfs",
+                    "fat": "fat",
+                    "ext": "ext",
+                    "iso": "iso9660",
+                    "hfs+": "hfs",
+                    "ufs": "ufs",
+                    "swap": "swap",
+                    "exfat": "exfat",
+                }.get(self.filesystem.type)
+
                 if fstype:
                     cmd.extend(["-f", fstype])
 
@@ -698,7 +710,7 @@ class Volume(object):
                 elif self.info.get('lastmountpoint') and not self.info.get('label'):
                     self.info['label'] = self.info['lastmountpoint']
                 elif not self.info.get('lastmountpoint') and self.info.get('label') and \
-                        self.info['label'].startswith("/"):  # e.g. /boot1
+                            self.info['label'].startswith("/"):  # e.g. /boot1
                     if self.info['label'].endswith("1"):
                         self.info['lastmountpoint'] = self.info['label'][:-1]
                     else:

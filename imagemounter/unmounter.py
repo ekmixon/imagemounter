@@ -31,18 +31,19 @@ class Unmounter(object):
             mountdir = os.path.join(mountdir, casename)
 
         if pretty:
-            self.re_pattern = re.escape(mountdir) + r"/.*[0-9.]+-.+"
-            self.glob_pattern = mountdir + "/*"
+            self.re_pattern = f"{re.escape(mountdir)}/.*[0-9.]+-.+"
+            self.glob_pattern = f"{mountdir}/*"
         else:
-            self.re_pattern = re.escape(mountdir) + r"/im_[0-9.]+_.+"
-            self.glob_pattern = mountdir + "/im_*"
+            self.re_pattern = f"{re.escape(mountdir)}/im_[0-9.]+_.+"
+            self.glob_pattern = f"{mountdir}/im_*"
 
         if casename:
-            self.orig_re_pattern = re.escape(tempfile.gettempdir()) + r"/image_mounter_.*_" + re.escape(casename)
-            self.orig_glob_pattern = tempfile.gettempdir() + "/image_mounter_*_" + casename
+            self.orig_re_pattern = f"{re.escape(tempfile.gettempdir())}/image_mounter_.*_{re.escape(casename)}"
+
+            self.orig_glob_pattern = f"{tempfile.gettempdir()}/image_mounter_*_{casename}"
         else:
-            self.orig_re_pattern = re.escape(tempfile.gettempdir()) + r"/image_mounter_.*"
-            self.orig_glob_pattern = tempfile.gettempdir() + "/image_mounter_*"
+            self.orig_re_pattern = f"{re.escape(tempfile.gettempdir())}/image_mounter_.*"
+            self.orig_glob_pattern = f"{tempfile.gettempdir()}/image_mounter_*"
 
         self._index_loopbacks()
         self._index_mountpoints()
@@ -53,20 +54,36 @@ class Unmounter(object):
         Note: any system changes between calling this method and calling :func:`unmount` aren't listed by this command.
         """
 
-        commands = []
-        for mountpoint in self.find_bindmounts():
-            commands.append('umount {0}'.format(mountpoint))
+        commands = [
+            'umount {0}'.format(mountpoint)
+            for mountpoint in self.find_bindmounts()
+        ]
+
         for mountpoint in self.find_mounts():
-            commands.append('umount {0}'.format(mountpoint))
-            commands.append('rm -Rf {0}'.format(mountpoint))
+            commands.extend(
+                ('umount {0}'.format(mountpoint), 'rm -Rf {0}'.format(mountpoint))
+            )
+
         for vgname, pvname in self.find_volume_groups():
-            commands.append('lvchange -a n {0}'.format(vgname))
-            commands.append('losetup -d {0}'.format(pvname))
-        for device in self.find_loopbacks():
-            commands.append('losetup -d {0}'.format(device))
+            commands.extend(
+                (
+                    'lvchange -a n {0}'.format(vgname),
+                    'losetup -d {0}'.format(pvname),
+                )
+            )
+
+        commands.extend(
+            'losetup -d {0}'.format(device) for device in self.find_loopbacks()
+        )
+
         for mountpoint in self.find_base_images():
-            commands.append('fusermount -u {0}'.format(mountpoint))
-            commands.append('rm -Rf {0}'.format(mountpoint))
+            commands.extend(
+                (
+                    'fusermount -u {0}'.format(mountpoint),
+                    'rm -Rf {0}'.format(mountpoint),
+                )
+            )
+
         for folder in self.find_clean_dirs():
             cmd = 'rm -Rf {0}'.format(folder)
             if cmd not in commands:
@@ -92,9 +109,8 @@ class Unmounter(object):
         try:
             result = _util.check_output_(['mount'])
             for line in result.splitlines():
-                m = re.match(r'(.+) on (.+) type (.+) \((.+)\)', line)
-                if m:
-                    self.mountpoints[m.group(2)] = (m.group(1), m.group(3), m.group(4))
+                if m := re.match(r'(.+) on (.+) type (.+) \((.+)\)', line):
+                    self.mountpoints[m[2]] = m[1], m[3], m[4]
         except Exception:
             pass
 
@@ -105,9 +121,8 @@ class Unmounter(object):
         try:
             result = _util.check_output_(['losetup', '-a'])
             for line in result.splitlines():
-                m = re.match(r'(.+): (.+) \((.+)\).*', line)
-                if m:
-                    self.loopbacks[m.group(1)] = m.group(3)
+                if m := re.match(r'(.+): (.+) \((.+)\).*', line):
+                    self.loopbacks[m[1]] = m[3]
         except Exception:
             pass
 
